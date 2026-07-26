@@ -1,0 +1,77 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER
+	tristate "MAVLink GPS/IMU publisher example"
+	default n
+	depends on SERIAL_TERMIOS && SPI && CANUTILS_LIBDRONECAN
+	---help---
+		Enable the MAVLink GPS/IMU publisher example. Reads GPS NMEA
+		sentences from a serial port, a Here4 (DroneCAN) GNSS/compass over
+		CAN, and an MPU9250 IMU over SPI, runs a complementary-filter AHRS,
+		and streams MAVLink telemetry (HEARTBEAT, GPS_INPUT, GPS_RAW_INT,
+		HIGHRES_IMU, ATTITUDE, VFR_HUD, FOLLOW_TARGET) out a second serial
+		port at 10Hz. The Here4 takes priority over the NMEA GPS whenever
+		it's actively transmitting.
+
+if EXAMPLES_MAVLINK_GPS_PUBLISHER
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_PROGNAME
+	string "Program name"
+	default "mavlink_gps_publisher"
+	---help---
+		This is the name of the program that will be used when the NSH ELF
+		program is installed.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_PRIORITY
+	int "mavlink_gps_publisher task priority"
+	default 100
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_STACKSIZE
+	int "mavlink_gps_publisher stack size"
+	default DEFAULT_TASK_STACKSIZE
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_GPS_DEVPATH
+	string "GPS UART device path"
+	default "/dev/ttyS1"
+	---help---
+		Serial device the NMEA GPS receiver is attached to.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_MAVLINK_DEVPATH
+	string "MAVLink UART device path"
+	default "/dev/ttyS0"
+	---help---
+		Serial device the MAVLink telemetry link (companion/autopilot) is
+		attached to.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_SPI_DEVPATH
+	int "MPU9250 SPI bus number"
+	default 1
+	---help---
+		SPI bus number the MPU9250 IMU is attached to.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_CAN_DEVPATH
+	string "Here4/DroneCAN CAN device path"
+	default "/dev/can0"
+	---help---
+		CAN device the Here4 GNSS/compass is attached to.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_DRONECAN_NODE_ID
+	int "DroneCAN local node ID"
+	default 127
+	range 1 127
+	---help---
+		This node never transmits (it's a passive DroneCAN listener), so
+		this only needs to be a fixed value that won't collide with other
+		nodes on the bus.
+
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_DRONECAN_MEM_POOL_SIZE
+	int "DroneCAN node memory pool size"
+	default 1024
+	---help---
+		Memory pool size (bytes) for libcanard's transfer reassembly
+		allocator.
+
+endif

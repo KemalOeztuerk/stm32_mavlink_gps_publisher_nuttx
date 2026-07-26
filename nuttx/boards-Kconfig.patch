@@ -1,0 +1,36 @@
+diff --git a/boards/Kconfig b/boards/Kconfig
+index 44e9a245bd..8ddf83eaaf 100644
+--- a/boards/Kconfig
++++ b/boards/Kconfig
+@@ -2924,6 +2924,13 @@ config ARCH_BOARD_STM32F103_MINIMUM
+ 	---help---
+ 		A configuration for the STM32F103 Minimum board.
+ 
++config ARCH_BOARD_MAVLINK_F105
++	bool "MAVLink GPS Publisher (STM32F105RB)"
++	depends on ARCH_CHIP_STM32F105RB
++	---help---
++		A configuration for a custom STM32F105RBT6 board that publishes
++		MAVLink GPS/IMU telemetry from an NMEA GPS and an MPU9250 IMU.
++
+ config ARCH_BOARD_STM32F411_MINIMUM
+ 	bool "STM32F411CEU6 Minimum ARM Development Board"
+ 	depends on ARCH_CHIP_STM32F411CE
+@@ -4014,6 +4021,7 @@ config ARCH_BOARD
+ 	default "nucleo-c071rb"                if ARCH_BOARD_NUCLEO_C071RB
+ 	default "nucleo-c092rc"                if ARCH_BOARD_NUCLEO_C092RC
+ 	default "stm32f103-minimum"            if ARCH_BOARD_STM32F103_MINIMUM
++	default "mavlink-f105"                 if ARCH_BOARD_MAVLINK_F105
+ 	default "stm32f411-minimum"            if ARCH_BOARD_STM32F411_MINIMUM
+ 	default "stm3210e-eval"                if ARCH_BOARD_STM3210E_EVAL
+ 	default "stm3220g-eval"                if ARCH_BOARD_STM3220G_EVAL
+@@ -4848,6 +4856,9 @@ endif
+ if ARCH_BOARD_STM32F103_MINIMUM
+ source "boards/arm/stm32f1/stm32f103-minimum/Kconfig"
+ endif
++if ARCH_BOARD_MAVLINK_F105
++source "boards/arm/stm32f1/mavlink-f105/Kconfig"
++endif
+ if ARCH_BOARD_STM32F411_MINIMUM
+ source "boards/arm/stm32f4/stm32f411-minimum/Kconfig"
+ endif
