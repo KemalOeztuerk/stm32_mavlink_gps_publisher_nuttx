@@ -25,7 +25,6 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/spi/spi.h>
 #include <nuttx/debug.h>
 
 #include <nuttx/board.h>
@@ -51,11 +50,9 @@
 
 void stm32_boardinitialize(void)
 {
-  /* Configure the SPI1 chip select used by the MPU9250. */
-
-#if defined(CONFIG_STM32_SPI1)
-  stm32_spidev_initialize();
-#endif
+  /* No early GPIO setup needed: CAN1 and USART1 pins are configured by
+   * their drivers.
+   */
 }
 
 /****************************************************************************

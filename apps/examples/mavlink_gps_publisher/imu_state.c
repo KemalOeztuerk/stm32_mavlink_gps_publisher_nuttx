@@ -14,8 +14,7 @@ void ImuState_Init(void)
 }
 
 void ImuState_Update(float accel_x_mps2, float accel_y_mps2, float accel_z_mps2,
-                      float gyro_x_rads, float gyro_y_rads, float gyro_z_rads,
-                      float temperature_degc)
+                      float gyro_x_rads, float gyro_y_rads, float gyro_z_rads)
 {
     pthread_mutex_lock(&s_mutex);
     s_state.valid = true;
@@ -25,7 +24,6 @@ void ImuState_Update(float accel_x_mps2, float accel_y_mps2, float accel_z_mps2,
     s_state.gyro_x_rads = gyro_x_rads;
     s_state.gyro_y_rads = gyro_y_rads;
     s_state.gyro_z_rads = gyro_z_rads;
-    s_state.temperature_degc = temperature_degc;
     s_imu_last_tick = clock_now_ms();
     pthread_mutex_unlock(&s_mutex);
 }

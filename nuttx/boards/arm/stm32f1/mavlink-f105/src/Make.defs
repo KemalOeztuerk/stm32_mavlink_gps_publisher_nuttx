@@ -22,7 +22,7 @@
 
 include $(TOPDIR)/Make.defs
 
-CSRCS = stm32_boot.c stm32_bringup.c stm32_spi.c
+CSRCS = stm32_boot.c stm32_bringup.c
 
 ifeq ($(CONFIG_STM32_CAN_CHARDRIVER),y)
   CSRCS += stm32_can.c

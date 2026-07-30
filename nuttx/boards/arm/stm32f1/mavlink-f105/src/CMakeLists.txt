@@ -20,7 +20,7 @@
 #
 # ##############################################################################
 
-set(SRCS stm32_boot.c stm32_bringup.c stm32_spi.c)
+set(SRCS stm32_boot.c stm32_bringup.c)
 
 if(CONFIG_STM32_CAN_CHARDRIVER)
   list(APPEND SRCS stm32_can.c)

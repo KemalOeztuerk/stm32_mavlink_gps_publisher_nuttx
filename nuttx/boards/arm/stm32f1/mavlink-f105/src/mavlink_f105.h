@@ -47,13 +47,6 @@
 #  endif
 #endif
 
-/* MPU9250 chip select: PA4, plain GPIO (software NSS management -- SPI1's
- * hardware NSS pin is not used).
- */
-
-#define GPIO_MPU9250_CS  (GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz | \
-                           GPIO_OUTPUT_SET | GPIO_PORTA | GPIO_PIN4)
-
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -74,22 +67,11 @@
 int stm32_bringup(void);
 
 /****************************************************************************
- * Name: stm32_spidev_initialize
- *
- * Description:
- *   Called to configure SPI chip select GPIO pins for the mavlink-f105
- *   board.
- *
- ****************************************************************************/
-
-void stm32_spidev_initialize(void);
-
-/****************************************************************************
  * Name: stm32_can_setup
  *
  * Description:
- *  Initialize CAN1 (Here4 DroneCAN GNSS/compass, PA11/PA12) and register
- *  the CAN character device.
+ *  Initialize CAN1 (Here4 DroneCAN GNSS/compass/IMU/baro, PA11/PA12) and
+ *  register the CAN character device.
  *
  ****************************************************************************/
 

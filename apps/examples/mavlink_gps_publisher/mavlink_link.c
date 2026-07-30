@@ -2,6 +2,8 @@
 #include "nav_state.h"
 #include "imu_state.h"
 #include "ahrs_state.h"
+#include "baro_state.h"
+#include "dronecan_gnss.h"
 #include "clock_ms.h"
 #include "common/mavlink.h"
 #include <fcntl.h>
@@ -9,6 +11,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 
 static int s_fd = -1;
 
@@ -64,25 +67,31 @@ static void send_gps_input(const nav_state_t *nav)
     float vn = nav->speed_mps * cosf(course_rad);
     float ve = nav->speed_mps * sinf(course_rad);
 
-    uint16_t ignore_flags = GPS_INPUT_IGNORE_FLAG_VDOP |
-                             GPS_INPUT_IGNORE_FLAG_VEL_VERT |
-                             GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY |
+    /* Fix2 always provides the full NED velocity; HDOP/VDOP come from the
+     * separate gnss.Auxiliary broadcast, with Fix2's PDOP standing in for
+     * HDOP until Auxiliary has been seen. */
+    uint16_t ignore_flags = GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY |
                              GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
                              GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY;
+    float hdop = nav->dop_valid ? nav->hdop : nav->pdop;
+    float vdop = nav->vdop;
+    if (!nav->dop_valid) {
+        ignore_flags |= GPS_INPUT_IGNORE_FLAG_VDOP;
+    }
 
     mavlink_message_t msg;
     mavlink_msg_gps_input_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
                                 (uint64_t)clock_now_ms() * 1000ULL, /* time_usec, since-boot */
                                 0,                                 /* gps_id */
                                 ignore_flags,
-                                0, 0,                               /* time_week_ms, time_week: not parsed from NMEA date */
+                                0, 0,                               /* time_week_ms, time_week: not tracked */
                                 nav->fix_type,
                                 nav->lat_degE7, nav->lon_degE7,
                                 nav->alt_m,
-                                nav->hdop, 0.0f,                    /* hdop, vdop(ignored) */
-                                vn, ve, 0.0f,                       /* vn, ve, vd(ignored) */
+                                hdop, vdop,
+                                vn, ve, nav->vel_d_mps,
                                 0.0f, 0.0f, 0.0f,                   /* speed/h/v accuracy (ignored) */
-                                nav->satellites_visible,
+                                nav->sats_used,
                                 heading_to_mavlink_yaw(nav->heading_valid, nav->heading_deg));
     send_message(&msg);
 }
@@ -95,7 +104,15 @@ static void send_gps_input(const nav_state_t *nav)
  * GPS_INPUT. */
 static void send_gps_raw_int(const nav_state_t *nav)
 {
-    uint16_t eph = (nav->hdop > 0.0f) ? (uint16_t)(nav->hdop * 100.0f) : UINT16_MAX;
+    float hdop = nav->dop_valid ? nav->hdop : nav->pdop;
+    uint16_t eph = (hdop > 0.0f) ? (uint16_t)(hdop * 100.0f) : UINT16_MAX;
+    uint16_t epv = (nav->dop_valid && nav->vdop > 0.0f)
+                       ? (uint16_t)(nav->vdop * 100.0f) : UINT16_MAX;
+    /* Prefer the receiver's visible count, but some Here4 firmwares report
+     * 0 visible in Auxiliary even while Fix2 shows satellites in use --
+     * fall back so a 3D fix never displays alongside "0 satellites". */
+    uint8_t sats = (nav->dop_valid && nav->sats_visible > 0)
+                       ? nav->sats_visible : nav->sats_used;
 
     mavlink_message_t msg;
     mavlink_msg_gps_raw_int_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
@@ -103,20 +120,20 @@ static void send_gps_raw_int(const nav_state_t *nav)
                                   nav->fix_type,
                                   nav->lat_degE7, nav->lon_degE7,
                                   (int32_t)(nav->alt_m * 1000.0f),
-                                  eph,
-                                  UINT16_MAX, /* epv: vdop not available */
+                                  eph, epv,
                                   (uint16_t)(nav->speed_mps * 100.0f),
                                   (uint16_t)(nav->course_deg * 100.0f),
-                                  nav->satellites_visible,
+                                  sats,
                                   0, 0, 0, 0, 0, /* alt_ellipsoid/h_acc/v_acc/vel_acc/hdg_acc: not available */
                                   heading_to_mavlink_yaw(nav->heading_valid, nav->heading_deg));
     send_message(&msg);
 }
 
-/* Mag fields are left at 0 and unflagged: this board's MPU9250 aux-I2C
- * magnetometer (AK8963) pass-through isn't wired up yet. No barometer
- * (BMP280 CS tied high / unused), so pressure fields are omitted too. */
-static void send_highres_imu(const imu_state_t *imu)
+/* Mag fields are left at 0 and unflagged: the Here4's magnetometer feeds
+ * the tilt-compensated heading in nav_state instead of being re-broadcast
+ * raw here. Pressure/temperature come from the Here4's barometer when it
+ * broadcasts one (StaticPressure/StaticTemperature). */
+static void send_highres_imu(const imu_state_t *imu, const baro_state_t *baro)
 {
     if (!imu->valid) {
         return;
@@ -124,18 +141,51 @@ static void send_highres_imu(const imu_state_t *imu)
 
     uint16_t fields_updated = HIGHRES_IMU_UPDATED_XACC | HIGHRES_IMU_UPDATED_YACC |
                                HIGHRES_IMU_UPDATED_ZACC | HIGHRES_IMU_UPDATED_XGYRO |
-                               HIGHRES_IMU_UPDATED_YGYRO | HIGHRES_IMU_UPDATED_ZGYRO |
-                               HIGHRES_IMU_UPDATED_TEMPERATURE;
+                               HIGHRES_IMU_UPDATED_YGYRO | HIGHRES_IMU_UPDATED_ZGYRO;
+
+    float abs_pressure_hpa = 0.0f;
+    float pressure_alt_m = 0.0f;
+    if (baro->pressure_valid) {
+        abs_pressure_hpa = baro->pressure_pa / 100.0f;
+        /* ISA barometric altitude from absolute pressure. */
+        pressure_alt_m = 44330.0f * (1.0f - powf(baro->pressure_pa / 101325.0f, 0.190295f));
+        fields_updated |= HIGHRES_IMU_UPDATED_ABS_PRESSURE |
+                          HIGHRES_IMU_UPDATED_PRESSURE_ALT;
+    }
+
+    float temperature_degc = 0.0f;
+    if (baro->temperature_valid) {
+        temperature_degc = baro->temperature_degc;
+        fields_updated |= HIGHRES_IMU_UPDATED_TEMPERATURE;
+    }
 
     mavlink_message_t msg;
     mavlink_msg_highres_imu_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
                                   (uint64_t)clock_now_ms() * 1000ULL,
                                   imu->accel_x_mps2, imu->accel_y_mps2, imu->accel_z_mps2,
                                   imu->gyro_x_rads, imu->gyro_y_rads, imu->gyro_z_rads,
-                                  0.0f, 0.0f, 0.0f,             /* xmag/ymag/zmag: not available */
-                                  0.0f, 0.0f, 0.0f,             /* abs/diff pressure, pressure_alt: not available */
-                                  imu->temperature_degc,
+                                  0.0f, 0.0f, 0.0f,             /* xmag/ymag/zmag: not re-broadcast */
+                                  abs_pressure_hpa, 0.0f, pressure_alt_m,
+                                  temperature_degc,
                                   fields_updated, 0);
+    send_message(&msg);
+}
+
+/* Here4 barometer passthrough for GCS display / logging. */
+static void send_scaled_pressure(const baro_state_t *baro)
+{
+    if (!baro->pressure_valid && !baro->temperature_valid) {
+        return;
+    }
+
+    mavlink_message_t msg;
+    mavlink_msg_scaled_pressure_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
+                                      clock_now_ms(),
+                                      baro->pressure_valid ? baro->pressure_pa / 100.0f : 0.0f,
+                                      0.0f, /* differential pressure: no pitot */
+                                      baro->temperature_valid
+                                          ? (int16_t)(baro->temperature_degc * 100.0f) : 0,
+                                      0);   /* diff-pressure temperature: not available */
     send_message(&msg);
 }
 
@@ -197,7 +247,8 @@ static void send_follow_target(const nav_state_t *nav, const ahrs_state_t *ahrs)
     uint8_t capabilities = FOLLOW_TARGET_CAP_POS | FOLLOW_TARGET_CAP_VEL;
 
     float course_rad = nav->course_deg * ((float)M_PI / 180.0f);
-    float vel[3] = { nav->speed_mps * cosf(course_rad), nav->speed_mps * sinf(course_rad), 0.0f };
+    float vel[3] = { nav->speed_mps * cosf(course_rad), nav->speed_mps * sinf(course_rad),
+                     nav->vel_d_mps };
     float acc[3] = { 0.0f, 0.0f, 0.0f };
 
     float attitude_q[4] = { 1.0f, 0.0f, 0.0f, 0.0f }; /* identity: unknown */
@@ -244,15 +295,17 @@ static void send_attitude(const ahrs_state_t *ahrs)
     send_message(&msg);
 }
 
-/* Drives the GCS heading tape / speed / altitude tapes. airspeed/throttle/climb
- * are 0: no pitot, no ESC telemetry, no vertical-speed source on this board. */
+/* Drives the GCS heading tape / speed / altitude tapes. airspeed/throttle
+ * are 0: no pitot, no ESC telemetry. Climb rate is the negated Fix2 NED
+ * down velocity. */
 static void send_vfr_hud(const nav_state_t *nav, const ahrs_state_t *ahrs)
 {
     int16_t heading_deg = ahrs->valid ? rad_to_heading_deg(ahrs->yaw_rad) : 0;
 
     mavlink_message_t msg;
     mavlink_msg_vfr_hud_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
-                              0.0f, nav->speed_mps, heading_deg, 0, nav->alt_m, 0.0f);
+                              0.0f, nav->speed_mps, heading_deg, 0, nav->alt_m,
+                              -nav->vel_d_mps);
     send_message(&msg);
 }
 
@@ -270,6 +323,7 @@ static void send_global_position_int(const nav_state_t *nav)
     float course_rad = nav->course_deg * ((float)M_PI / 180.0f);
     int16_t vx = (int16_t)(nav->speed_mps * cosf(course_rad) * 100.0f); /* cm/s */
     int16_t vy = (int16_t)(nav->speed_mps * sinf(course_rad) * 100.0f);
+    int16_t vz = (int16_t)(nav->vel_d_mps * 100.0f); /* cm/s, positive down */
 
     int32_t alt_mm = (int32_t)(nav->alt_m * 1000.0f);
 
@@ -278,14 +332,60 @@ static void send_global_position_int(const nav_state_t *nav)
                                           clock_now_ms(),
                                           nav->lat_degE7, nav->lon_degE7,
                                           alt_mm, alt_mm,
-                                          vx, vy, 0,
+                                          vx, vy, vz,
                                           heading_to_mavlink_yaw(nav->heading_valid, nav->heading_deg));
+    send_message(&msg);
+}
+
+/* 1Hz bus-health diagnostic: the board has no debug console, so the MAVLink
+ * link doubles as one. Shows raw CAN frames received, TX errors, the node ID
+ * we handed out (0 until the DNA handshake completes), Fix2 and magnetometer
+ * messages decoded, and the current compass heading (-1 = none yet). */
+static void send_dronecan_status(const nav_state_t *nav)
+{
+    dronecan_stats_t st;
+    DroneCanGnss_GetStats(&st);
+
+    int heading = nav->heading_valid ? (int)nav->heading_deg : -1;
+
+    char text[50];
+    if (st.tx_errors == 0) {
+        snprintf(text, sizeof(text), "DC sv:%u su:%u ft:%u fx:%lu hd:%d h:%u id:%u",
+                 nav->sats_visible, nav->sats_used, nav->fix_type,
+                 (unsigned long)st.fix2_count, heading,
+                 st.remote_health, st.allocated_id);
+    } else {
+        snprintf(text, sizeof(text), "DC TXERR:%lu rx:%lu id:%u fx:%lu",
+                 (unsigned long)st.tx_errors, (unsigned long)st.rx_frames,
+                 st.allocated_id, (unsigned long)st.fix2_count);
+    }
+
+    mavlink_message_t msg;
+    mavlink_msg_statustext_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
+                                 MAV_SEVERITY_INFO, text, 0, 0);
+    send_message(&msg);
+}
+
+/* Relays the Here4's own debug/error log output (DroneCAN LogMessage) so
+ * problems inside the peripheral (e.g. GPS probe failures) are visible in
+ * the GCS messages tab. */
+static void forward_here4_log(void)
+{
+    char text[50];
+    if (!DroneCanGnss_TakeLogMessage(text, sizeof(text))) {
+        return;
+    }
+
+    mavlink_message_t msg;
+    mavlink_msg_statustext_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
+                                 MAV_SEVERITY_NOTICE, text, 0, 0);
     send_message(&msg);
 }
 
 void *mavlink_tx_task(void *argument)
 {
     (void)argument;
+    unsigned iteration = 0;
     for (;;) {
         nav_state_t nav;
         NavState_GetSnapshot(&nav);
@@ -293,15 +393,24 @@ void *mavlink_tx_task(void *argument)
         ImuState_GetSnapshot(&imu);
         ahrs_state_t ahrs;
         AhrsState_GetSnapshot(&ahrs);
+        baro_state_t baro;
+        BaroState_GetSnapshot(&baro);
 
         send_heartbeat();
         send_gps_input(&nav);
         send_gps_raw_int(&nav);
         send_global_position_int(&nav);
-        send_highres_imu(&imu);
+        send_highres_imu(&imu, &baro);
+        send_scaled_pressure(&baro);
         send_attitude(&ahrs);
         send_vfr_hud(&nav, &ahrs);
         send_follow_target(&nav, &ahrs);
+
+        forward_here4_log();
+        if (++iteration >= 10) {
+            iteration = 0;
+            send_dronecan_status(&nav);
+        }
 
         usleep(100000); /* 10Hz, matching upstream follow-target-send.lua's UPDATE_INTERVAL_MS */
     }

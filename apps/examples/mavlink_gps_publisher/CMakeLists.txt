@@ -43,13 +43,21 @@ if(CONFIG_EXAMPLES_MAVLINK_GPS_PUBLISHER)
     imu_state.c
     ahrs_state.c
     ahrs_filter.c
-    gps_nmea.c
+    baro_state.c
     mavlink_link.c
-    mpu9250.c
     dronecan_gnss.c
     dronecan/generated/uavcan.equipment.gnss.Fix2.c
+    dronecan/generated/uavcan.equipment.gnss.Auxiliary.c
+    dronecan/generated/uavcan.equipment.ahrs.MagneticFieldStrength.c
     dronecan/generated/uavcan.equipment.ahrs.MagneticFieldStrength2.c
+    dronecan/generated/dronecan.sensors.magnetometer.MagneticFieldStrengthHiRes.c
     dronecan/generated/uavcan.equipment.ahrs.RawIMU.c
+    dronecan/generated/uavcan.equipment.air_data.StaticPressure.c
+    dronecan/generated/uavcan.equipment.air_data.StaticTemperature.c
+    dronecan/generated/uavcan.protocol.NodeStatus.c
+    dronecan/generated/uavcan.protocol.debug.LogMessage.c
+    dronecan/generated/uavcan.protocol.debug.LogLevel.c
+    dronecan/generated/uavcan.protocol.dynamic_node_id.Allocation.c
     dronecan/generated/uavcan.Timestamp.c
     dronecan/generated/uavcan.equipment.gnss.ECEFPositionVelocity.c
     INCLUDE_DIRECTORIES

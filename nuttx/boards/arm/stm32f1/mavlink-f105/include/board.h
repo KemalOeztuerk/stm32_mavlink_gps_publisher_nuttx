@@ -31,7 +31,6 @@
 
 #ifndef __ASSEMBLY__
 #  include <stdint.h>
-#  include <nuttx/spi/spi.h>
 #endif
 
 /****************************************************************************
@@ -108,47 +107,9 @@
 #define GPIO_USART1_TX  GPIO_ADJUST_MODE(GPIO_USART1_TX_0, GPIO_MODE_50MHz)
 #define GPIO_USART1_RX  GPIO_USART1_RX_0
 
-/* USART2: GPS NMEA link. PA2=TX, PA3=RX (no remap). */
-
-#define GPIO_USART2_TX  GPIO_ADJUST_MODE(GPIO_USART2_TX_0, GPIO_MODE_50MHz)
-#define GPIO_USART2_RX  GPIO_USART2_RX_0
-
-/* SPI1: MPU9250 IMU. PA5=SCK, PA6=MISO, PA7=MOSI (no remap). PA4 is the
- * chip select, driven as a plain GPIO by board logic (software NSS
- * management) -- see stm32_spi1select() in src/stm32_spi.c -- so the
- * hardware NSS pin alias is intentionally not defined here.
- */
-
-#define GPIO_SPI1_SCK   GPIO_ADJUST_MODE(GPIO_SPI1_SCK_0, GPIO_MODE_50MHz)
-#define GPIO_SPI1_MISO  GPIO_SPI1_MISO_0
-#define GPIO_SPI1_MOSI  GPIO_ADJUST_MODE(GPIO_SPI1_MOSI_0, GPIO_MODE_50MHz)
-
-/* CAN1: Here4 DroneCAN GNSS/compass. PA11=RX, PA12=TX (no remap). */
+/* CAN1: Here4 DroneCAN GNSS/compass/IMU/baro. PA11=RX, PA12=TX (no remap). */
 
 #define GPIO_CAN1_RX    GPIO_CAN1_RX_0
 #define GPIO_CAN1_TX    GPIO_ADJUST_MODE(GPIO_CAN1_TX_0, GPIO_MODE_50MHz)
-
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
-
-#ifndef __ASSEMBLY__
-
-/****************************************************************************
- * Name: board_mpu9250_spibus
- *
- * Description:
- *   Returns the SPI1 bus handle the MPU9250 IMU is wired to, initializing
- *   it on first call. This is the only arch-level SPI entry point exposed
- *   to application code; it exists so that apps/examples/
- *   mavlink_gps_publisher (which implements its own MPU9250 driver in
- *   application space rather than as a NuttX character driver) can reach
- *   the bus without linking against arch-private headers.
- *
- ****************************************************************************/
-
-struct spi_dev_s *board_mpu9250_spibus(void);
-
-#endif /* __ASSEMBLY__ */
 
 #endif /* __BOARDS_ARM_STM32F1_MAVLINK_F105_INCLUDE_BOARD_H */
