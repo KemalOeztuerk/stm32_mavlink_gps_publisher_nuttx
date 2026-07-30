@@ -364,6 +364,14 @@ static void send_dronecan_status(const nav_state_t *nav)
     mavlink_msg_statustext_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
                                  MAV_SEVERITY_INFO, text, 0, 0);
     send_message(&msg);
+
+    /* Raw (untransformed) Here4 accelerometer, 0.1 m/s^2 per LSB -- for
+     * pinning down the IMU frame orientation against physical tilts. */
+    snprintf(text, sizeof(text), "RAW ax:%d ay:%d az:%d",
+             st.raw_acc[0], st.raw_acc[1], st.raw_acc[2]);
+    mavlink_msg_statustext_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
+                                 MAV_SEVERITY_INFO, text, 0, 0);
+    send_message(&msg);
 }
 
 /* Relays the Here4's own debug/error log output (DroneCAN LogMessage) so

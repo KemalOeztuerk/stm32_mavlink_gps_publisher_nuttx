@@ -40,6 +40,7 @@ typedef struct {
     uint32_t mag_count;       /* magnetometer messages decoded (any variant) */
     uint8_t  remote_health;   /* peripheral's NodeStatus health: 0=OK 1=warn
                                * 2=error 3=critical */
+    int16_t  raw_acc[3];      /* last RawIMU accel, untransformed, 0.1 m/s^2 */
 } dronecan_stats_t;
 
 void DroneCanGnss_GetStats(dronecan_stats_t *out);

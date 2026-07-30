@@ -236,6 +236,7 @@ static void update_heading_from_field(float mx, float my, float mz)
 
     float heading_deg = wrap_360(atan2f(yh, xh) * (180.0f / (float)M_PI));
     NavState_UpdateHeading(heading_deg);
+    AhrsFilter_SetMagHeading(heading_deg);
 
     stats_lock();
     s_stats.mag_count++;
@@ -287,6 +288,12 @@ static void handle_raw_imu(const CanardRxTransfer *transfer)
                        msg.accelerometer_latest[2],
                        msg.rate_gyro_latest[0], msg.rate_gyro_latest[1],
                        msg.rate_gyro_latest[2]);
+
+    stats_lock();
+    for (int i = 0; i < 3; i++) {
+        s_stats.raw_acc[i] = (int16_t)(msg.accelerometer_latest[i] * 10.0f);
+    }
+    stats_unlock();
 }
 
 static void handle_static_pressure(const CanardRxTransfer *transfer)
