@@ -63,4 +63,14 @@ config EXAMPLES_MAVLINK_GPS_PUBLISHER_DRONECAN_MEM_POOL_SIZE
 		Memory pool size (bytes) for libcanard's transfer reassembly and
 		TX queue allocator.
 
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_HEADING_OFFSET_DEG
+	int "Compass heading offset (degrees)"
+	default 0
+	range -180 180
+	---help---
+		Constant offset added to the computed compass heading, for
+		correcting a fixed mounting-orientation rotation between the
+		Here4's magnetometer frame and the chosen forward direction
+		(and/or local magnetic declination).
+
 endif

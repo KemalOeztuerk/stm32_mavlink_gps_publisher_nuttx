@@ -210,10 +210,66 @@ static void handle_auxiliary(const CanardRxTransfer *transfer)
     NavState_UpdateDops(msg.hdop, msg.vdop, msg.sats_used, msg.sats_visible);
 }
 
-/* Tilt-compensated heading from raw body-frame magnetometer readings plus
- * the current roll/pitch estimate. No hard-iron/soft-iron calibration is
- * applied (offsets are implicitly zero). Assumes X-forward/Y-right/Z-down
- * body frame, matching the DroneCAN convention.
+/* Running hard-iron calibration: the measured field is the earth's field
+ * (rotating with the body) plus a fixed bias from the unit/mounting; on a
+ * real Here4 that bias measured LARGER than the earth field, making the
+ * uncalibrated heading wobble instead of sweep. Tracking each axis's
+ * min/max as the unit rotates puts the bias at the midpoint. Correction
+ * engages automatically once the horizontal axes have each seen enough
+ * span (a full slow rotation of the unit after power-up completes it);
+ * until then the heading is served uncalibrated. */
+#define MAG_CAL_MIN_SPAN_GA 0.25f
+#define MAG_MAX_PLAUSIBLE_GA 2.0f
+
+static float s_mag_min[3] = {1e9f, 1e9f, 1e9f};
+static float s_mag_max[3] = {-1e9f, -1e9f, -1e9f};
+static bool s_mag_cal_reported;
+
+static bool mag_apply_calibration(float m[3])
+{
+    float norm = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    if (norm > MAG_MAX_PLAUSIBLE_GA || norm <= 0.0f) {
+        return false; /* magnet waved nearby / bogus sample: don't learn it */
+    }
+
+    for (int i = 0; i < 3; i++) {
+        if (m[i] < s_mag_min[i]) {
+            s_mag_min[i] = m[i];
+        }
+        if (m[i] > s_mag_max[i]) {
+            s_mag_max[i] = m[i];
+        }
+    }
+
+    if ((s_mag_max[0] - s_mag_min[0]) < MAG_CAL_MIN_SPAN_GA ||
+        (s_mag_max[1] - s_mag_min[1]) < MAG_CAL_MIN_SPAN_GA) {
+        return false; /* not enough rotation seen yet this boot */
+    }
+
+    float ofs[3];
+    for (int i = 0; i < 3; i++) {
+        ofs[i] = 0.5f * (s_mag_min[i] + s_mag_max[i]);
+        m[i] -= ofs[i];
+    }
+
+    /* First completion this boot: announce it (and the learned offsets)
+     * on the MAVLink messages stream so the operator knows the rotation
+     * dance worked. Reuses the Here4-log STATUSTEXT queue. */
+    if (!s_mag_cal_reported) {
+        s_mag_cal_reported = true;
+        stats_lock();
+        snprintf(s_log_text, sizeof(s_log_text), "MAGCAL ofs %d %d %d (0.01Ga)",
+                 (int)(ofs[0] * 100.0f), (int)(ofs[1] * 100.0f),
+                 (int)(ofs[2] * 100.0f));
+        s_log_pending = true;
+        stats_unlock();
+    }
+    return true;
+}
+
+/* Tilt-compensated heading from hard-iron-corrected body-frame magnetometer
+ * readings plus the current roll/pitch estimate. Assumes X-forward/Y-right/
+ * Z-down body frame, matching the DroneCAN convention.
  *
  * If the Here4 isn't broadcasting RawIMU (a firmware option that is often
  * off), there is no attitude estimate to compensate with; the unit is then
@@ -221,10 +277,31 @@ static void handle_auxiliary(const CanardRxTransfer *transfer)
  * horizontal mount and a reasonable approximation otherwise. */
 static void update_heading_from_field(float mx, float my, float mz)
 {
+    /* Bench-verified: after hard-iron correction the heading swept
+     * backwards (CW rotation decreased it), meaning the Here4 broadcasts
+     * its mag field in a Z-up frame. Rotate 180 degrees about X into the
+     * body Z-down frame. */
+    my = -my;
+    mz = -mz;
+
     ahrs_state_t ahrs;
     AhrsState_GetSnapshot(&ahrs);
-    float roll_rad = ahrs.valid ? ahrs.roll_rad : 0.0f;
+    /* ahrs_state's roll is published negated (user mounting convention,
+     * see ahrs_filter.c); tilt compensation needs the true FRD roll. */
+    float roll_rad = ahrs.valid ? -ahrs.roll_rad : 0.0f;
     float pitch_rad = ahrs.valid ? ahrs.pitch_rad : 0.0f;
+
+    stats_lock();
+    s_stats.raw_mag[0] = (int16_t)(mx * 100.0f);
+    s_stats.raw_mag[1] = (int16_t)(my * 100.0f);
+    s_stats.raw_mag[2] = (int16_t)(mz * 100.0f);
+    stats_unlock();
+
+    float m[3] = {mx, my, mz};
+    bool calibrated = mag_apply_calibration(m);
+    mx = m[0];
+    my = m[1];
+    mz = m[2];
 
     float cr = cosf(roll_rad);
     float sr = sinf(roll_rad);
@@ -234,9 +311,14 @@ static void update_heading_from_field(float mx, float my, float mz)
     float xh = mx * cp + my * sr * sp + mz * cr * sp;
     float yh = my * cr - mz * sr;
 
-    float heading_deg = wrap_360(atan2f(yh, xh) * (180.0f / (float)M_PI));
+    float heading_deg = wrap_360(atan2f(yh, xh) * (180.0f / (float)M_PI) +
+                                 (float)CONFIG_EXAMPLES_MAVLINK_GPS_PUBLISHER_HEADING_OFFSET_DEG);
     NavState_UpdateHeading(heading_deg);
-    AhrsFilter_SetMagHeading(heading_deg);
+    if (calibrated) {
+        /* Only a hard-iron-corrected heading is allowed to steer the AHRS
+         * yaw; the uncalibrated wobble would fight the gyro. */
+        AhrsFilter_SetMagHeading(heading_deg);
+    }
 
     stats_lock();
     s_stats.mag_count++;
