@@ -42,6 +42,8 @@ typedef struct {
                                * 2=error 3=critical */
     int16_t  raw_acc[3];      /* last RawIMU accel, untransformed, 0.1 m/s^2 */
     int16_t  raw_mag[3];      /* last mag field, untransformed, 0.01 Gauss */
+    int16_t  raw_gyro[3];     /* rate_gyro_latest, untransformed, 0.01 rad/s */
+    int16_t  raw_gyro_int[3]; /* rate_gyro_integral/interval, 0.01 rad/s */
 } dronecan_stats_t;
 
 void DroneCanGnss_GetStats(dronecan_stats_t *out);

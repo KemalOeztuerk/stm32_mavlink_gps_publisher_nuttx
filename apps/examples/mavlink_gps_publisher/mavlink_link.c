@@ -341,6 +341,19 @@ static void send_global_position_int(const nav_state_t *nav)
  * link doubles as one. Shows raw CAN frames received, TX errors, the node ID
  * we handed out (0 until the DNA handshake completes), Fix2 and magnetometer
  * messages decoded, and the current compass heading (-1 = none yet). */
+/* Keeps each diagnostic number to at most 4 characters so the composed
+ * line provably fits STATUSTEXT's 50-byte text field. */
+static int clamp999(int16_t v)
+{
+    if (v > 999) {
+        return 999;
+    }
+    if (v < -999) {
+        return -999;
+    }
+    return v;
+}
+
 static void send_dronecan_status(const nav_state_t *nav)
 {
     dronecan_stats_t st;
@@ -365,12 +378,13 @@ static void send_dronecan_status(const nav_state_t *nav)
                                  MAV_SEVERITY_INFO, text, 0, 0);
     send_message(&msg);
 
-    /* Raw (untransformed) Here4 accelerometer (0.1 m/s^2) and magnetometer
-     * (0.01 Gauss) -- for pinning down the sensor frame orientations
-     * against physical tilts/rotations. */
-    snprintf(text, sizeof(text), "RAW a:%d,%d,%d m:%d,%d,%d",
-             st.raw_acc[0], st.raw_acc[1], st.raw_acc[2],
-             st.raw_mag[0], st.raw_mag[1], st.raw_mag[2]);
+    /* Raw (untransformed) Here4 gyro, 0.01 rad/s: gl = rate_gyro_latest as
+     * broadcast, gi = rate_gyro_integral over its integration interval.
+     * Shows which of the two the peripheral actually fills. */
+    snprintf(text, sizeof(text), "RAW gl:%d,%d,%d gi:%d,%d,%d",
+             clamp999(st.raw_gyro[0]), clamp999(st.raw_gyro[1]),
+             clamp999(st.raw_gyro[2]), clamp999(st.raw_gyro_int[0]),
+             clamp999(st.raw_gyro_int[1]), clamp999(st.raw_gyro_int[2]));
     mavlink_msg_statustext_pack(MAVLINK_LINK_SYSTEM_ID, MAVLINK_LINK_COMPONENT_ID, &msg,
                                  MAV_SEVERITY_INFO, text, 0, 0);
     send_message(&msg);

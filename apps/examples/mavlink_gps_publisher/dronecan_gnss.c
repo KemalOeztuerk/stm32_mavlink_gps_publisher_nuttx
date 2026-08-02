@@ -366,15 +366,42 @@ static void handle_raw_imu(const CanardRxTransfer *transfer)
         return; /* malformed payload */
     }
 
+    /* Some Here4 firmware broadcasts rate_gyro_latest as zeros while still
+     * filling rate_gyro_integral (AP_Periph sources the two from different
+     * IMU calls: get_gyro() vs get_delta_angle()). Fall back to the
+     * integrated delta-angle over its integration interval, which is the
+     * same quantity averaged across the interval. */
+    float gx = msg.rate_gyro_latest[0];
+    float gy = msg.rate_gyro_latest[1];
+    float gz = msg.rate_gyro_latest[2];
+    float gix = 0.0f;
+    float giy = 0.0f;
+    float giz = 0.0f;
+    if (msg.integration_interval > 0.0f) {
+        float inv_dt = 1.0f / msg.integration_interval;
+        gix = msg.rate_gyro_integral[0] * inv_dt;
+        giy = msg.rate_gyro_integral[1] * inv_dt;
+        giz = msg.rate_gyro_integral[2] * inv_dt;
+    }
+    if (gx == 0.0f && gy == 0.0f && gz == 0.0f) {
+        gx = gix;
+        gy = giy;
+        gz = giz;
+    }
+
     AhrsFilter_Update(msg.accelerometer_latest[0], msg.accelerometer_latest[1],
-                       msg.accelerometer_latest[2],
-                       msg.rate_gyro_latest[0], msg.rate_gyro_latest[1],
-                       msg.rate_gyro_latest[2]);
+                       msg.accelerometer_latest[2], gx, gy, gz);
 
     stats_lock();
     for (int i = 0; i < 3; i++) {
         s_stats.raw_acc[i] = (int16_t)(msg.accelerometer_latest[i] * 10.0f);
     }
+    s_stats.raw_gyro[0] = (int16_t)(msg.rate_gyro_latest[0] * 100.0f);
+    s_stats.raw_gyro[1] = (int16_t)(msg.rate_gyro_latest[1] * 100.0f);
+    s_stats.raw_gyro[2] = (int16_t)(msg.rate_gyro_latest[2] * 100.0f);
+    s_stats.raw_gyro_int[0] = (int16_t)(gix * 100.0f);
+    s_stats.raw_gyro_int[1] = (int16_t)(giy * 100.0f);
+    s_stats.raw_gyro_int[2] = (int16_t)(giz * 100.0f);
     stats_unlock();
 }
 
