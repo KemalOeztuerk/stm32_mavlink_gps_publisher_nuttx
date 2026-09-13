@@ -80,6 +80,94 @@ static void stats_unlock(void)
 }
 
 /****************************************************************************
+ * Raw-frame bridge (MAVLink CAN forwarding)
+ *
+ * Frames move between CAN1 and Mission Planner untouched by libcanard --
+ * see the comment on dronecan_rx_hook_t in the header.
+ ****************************************************************************/
+
+#define RAW_TX_QUEUE_LEN 32
+
+struct raw_tx_frame {
+    uint32_t id;
+    uint8_t len;
+    uint8_t data[8];
+};
+
+static dronecan_rx_hook_t s_rx_hook;
+static struct raw_tx_frame s_raw_tx[RAW_TX_QUEUE_LEN];
+static uint8_t s_raw_tx_head;
+static uint8_t s_raw_tx_tail;
+static pthread_mutex_t s_raw_tx_mutex;
+
+void DroneCanGnss_SetRxHook(dronecan_rx_hook_t hook)
+{
+    s_rx_hook = hook;
+}
+
+bool DroneCanGnss_QueueTxFrame(uint32_t can_id, uint8_t len,
+                                const uint8_t *data)
+{
+    if (len > 8) {
+        return false;
+    }
+
+    pthread_mutex_lock(&s_raw_tx_mutex);
+
+    uint8_t next = (uint8_t)((s_raw_tx_head + 1) % RAW_TX_QUEUE_LEN);
+    if (next == s_raw_tx_tail) {
+        pthread_mutex_unlock(&s_raw_tx_mutex);
+        return false;
+    }
+
+    s_raw_tx[s_raw_tx_head].id = can_id;
+    s_raw_tx[s_raw_tx_head].len = len;
+    memcpy(s_raw_tx[s_raw_tx_head].data, data, len);
+    s_raw_tx_head = next;
+
+    pthread_mutex_unlock(&s_raw_tx_mutex);
+    return true;
+}
+
+/* Writes frames injected by Mission Planner onto the bus. Like
+ * process_tx_queue(), a frame is kept and retried next cycle when the TX
+ * path is busy rather than being dropped. */
+static void drain_raw_tx_queue(void)
+{
+    for (;;) {
+        struct raw_tx_frame pending;
+
+        pthread_mutex_lock(&s_raw_tx_mutex);
+        if (s_raw_tx_tail == s_raw_tx_head) {
+            pthread_mutex_unlock(&s_raw_tx_mutex);
+            return;
+        }
+        pending = s_raw_tx[s_raw_tx_tail];
+        pthread_mutex_unlock(&s_raw_tx_mutex);
+
+        CanardCANFrame frame;
+        memset(&frame, 0, sizeof(frame));
+        frame.id = pending.id;
+        frame.data_len = pending.len;
+        memcpy(frame.data, pending.data, pending.len);
+
+        int res = canardNuttXTransmit(&s_canard_nuttx, &frame, 10);
+        if (res == 0) {
+            return; /* TX path busy: retry the same frame later */
+        }
+        if (res < 0) {
+            stats_lock();
+            s_stats.tx_errors++;
+            stats_unlock();
+        }
+
+        pthread_mutex_lock(&s_raw_tx_mutex);
+        s_raw_tx_tail = (uint8_t)((s_raw_tx_tail + 1) % RAW_TX_QUEUE_LEN);
+        pthread_mutex_unlock(&s_raw_tx_mutex);
+    }
+}
+
+/****************************************************************************
  * Dynamic node ID allocation (DNA) server state
  *
  * Centralized allocator per the DroneCAN specification: an unconfigured
@@ -733,6 +821,7 @@ int DroneCanGnss_Init(const char *devpath)
     }
 
     pthread_mutex_init(&s_stats_mutex, NULL);
+    pthread_mutex_init(&s_raw_tx_mutex, NULL);
 
     canardInit(&s_canard, s_canard_memory_pool, sizeof(s_canard_memory_pool),
                onTransferReceived, shouldAcceptTransfer, NULL);
@@ -749,14 +838,32 @@ void *dronecan_task(void *argument)
     (void)argument;
     for (;;) {
         CanardCANFrame rx_frame;
-        int rx_res = canardNuttXReceive(&s_canard_nuttx, &rx_frame, 100);
+
+        /* This poll timeout is also the worst-case delay before a frame the
+         * GCS handed us gets written to the bus, because drain_raw_tx_queue()
+         * runs at the bottom of this loop. At 100ms that dominated the
+         * round-trip of every DroneCAN service call made through the MAVLink
+         * bridge -- enough for a GCS to time out on individual parameters
+         * and leave gaps in the list, with nothing dropped and every error
+         * counter at zero. 5ms costs a few more wakeups on an otherwise idle
+         * MCU and takes that delay out of the picture. */
+        int rx_res = canardNuttXReceive(&s_canard_nuttx, &rx_frame, 5);
         uint64_t now_us = (uint64_t)clock_now_ms() * 1000ULL;
         if (rx_res > 0) {
             stats_lock();
             s_stats.rx_frames++;
             stats_unlock();
+
+            /* Mission Planner gets the raw bus, before libcanard filters it
+             * down to the handful of sensor messages this board decodes. */
+            if (s_rx_hook != NULL) {
+                s_rx_hook(rx_frame.id, rx_frame.data_len, rx_frame.data);
+            }
+
             canardHandleRxFrame(&s_canard, &rx_frame, now_us);
         }
+
+        drain_raw_tx_queue();
 
         uint32_t now = clock_now_ms();
 

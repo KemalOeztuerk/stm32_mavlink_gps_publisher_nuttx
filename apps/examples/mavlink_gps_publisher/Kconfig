@@ -40,6 +40,21 @@ config EXAMPLES_MAVLINK_GPS_PUBLISHER_MAVLINK_DEVPATH
 		Serial device the MAVLink telemetry link (companion/autopilot) is
 		attached to.
 
+config EXAMPLES_MAVLINK_GPS_PUBLISHER_MAVLINK_BAUD
+	int "MAVLink UART baud rate"
+	default 57600
+	---help---
+		Baud rate of the MAVLink telemetry link.
+
+		57600 is the ArduPilot default and is what the telemetry stream
+		alone needs about 85% of, so there is almost nothing left for
+		forwarding CAN frames to Mission Planner's DroneCAN page. The
+		firmware works around that by standing telemetry down while a
+		DroneCAN session is open, which is enough for browsing and editing
+		Here4 parameters. Raise this (921600 is a good choice) if you want
+		headroom for DroneCAN firmware updates, and remember to change the
+		other end of the link to match.
+
 config EXAMPLES_MAVLINK_GPS_PUBLISHER_CAN_DEVPATH
 	string "Here4/DroneCAN CAN device path"
 	default "/dev/can0"
@@ -48,13 +63,18 @@ config EXAMPLES_MAVLINK_GPS_PUBLISHER_CAN_DEVPATH
 
 config EXAMPLES_MAVLINK_GPS_PUBLISHER_DRONECAN_NODE_ID
 	int "DroneCAN local node ID"
-	default 127
+	default 126
 	range 1 127
 	---help---
 		Our own node ID on the DroneCAN bus. This node transmits (NodeStatus
 		and dynamic-node-ID allocation responses), so it must not collide
 		with any other node. IDs handed out to allocatees stay at or below
-		125, so the default of 127 can never conflict with them.
+		125, so they can never conflict with it.
+
+		The default is 126 rather than 127 because Mission Planner joins the
+		bus as node 127 when you open its DroneCAN page through this board's
+		MAVLink CAN bridge. Two nodes sharing an ID is a spec violation and
+		confuses service transfers, which is exactly what that page needs.
 
 config EXAMPLES_MAVLINK_GPS_PUBLISHER_DRONECAN_MEM_POOL_SIZE
 	int "DroneCAN node memory pool size"

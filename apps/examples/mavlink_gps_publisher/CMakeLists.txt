@@ -45,6 +45,7 @@ if(CONFIG_EXAMPLES_MAVLINK_GPS_PUBLISHER)
     ahrs_filter.c
     baro_state.c
     mavlink_link.c
+    mavlink_can_forward.c
     dronecan_gnss.c
     dronecan/generated/uavcan.equipment.gnss.Fix2.c
     dronecan/generated/uavcan.equipment.gnss.Auxiliary.c

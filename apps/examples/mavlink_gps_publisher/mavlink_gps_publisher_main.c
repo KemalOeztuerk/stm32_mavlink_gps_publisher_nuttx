@@ -17,9 +17,11 @@
 #include "ahrs_filter.h"
 #include "baro_state.h"
 #include "mavlink_link.h"
+#include "mavlink_can_forward.h"
 #include "dronecan_gnss.h"
 
 #define MAVLINK_TX_STACKSIZE    4096
+#define MAVLINK_RX_STACKSIZE    3072
 #define DRONECAN_TASK_STACKSIZE 3072
 
 static void start_thread(pthread_t *thread, void *(*entry)(void *),
@@ -58,18 +60,26 @@ int main(int argc, FAR char *argv[])
         return -1;
     }
 
+    /* After DroneCanGnss_Init(): this registers the raw-frame hook that
+     * carries Mission Planner's DroneCAN traffic. */
+    MavlinkCanForward_Init();
+
     pthread_t mavlink_thread;
+    pthread_t mavlink_rx_thread;
     pthread_t dronecan_thread;
 
     start_thread(&dronecan_thread, dronecan_task, DRONECAN_TASK_STACKSIZE,
                  "dronecan_task");
     start_thread(&mavlink_thread, mavlink_tx_task, MAVLINK_TX_STACKSIZE,
                  "mavlink_tx_task");
+    start_thread(&mavlink_rx_thread, mavlink_rx_task, MAVLINK_RX_STACKSIZE,
+                 "mavlink_rx_task");
 
     /* All tasks run forever; block here for the lifetime of the program. */
 
     pthread_join(dronecan_thread, NULL);
     pthread_join(mavlink_thread, NULL);
+    pthread_join(mavlink_rx_thread, NULL);
 
     return 0;
 }
