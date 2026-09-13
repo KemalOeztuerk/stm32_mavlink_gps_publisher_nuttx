@@ -1,8 +1,24 @@
 diff --git a/boards/Kconfig b/boards/Kconfig
-index 44e9a245bd..8ddf83eaaf 100644
+index 44e9a245bd..9ee767fa37 100644
 --- a/boards/Kconfig
 +++ b/boards/Kconfig
-@@ -2924,6 +2924,13 @@ config ARCH_BOARD_STM32F103_MINIMUM
+@@ -1946,6 +1946,15 @@ config ARCH_BOARD_NUCLEO_F446RE
+ 		This is a minimal configuration that supports low-level test of the
+ 		Nucleo F446RE in the NuttX source tree.
+ 
++config ARCH_BOARD_MAVLINK_F446
++	bool "MAVLink GPS Publisher (STM32F446RE)"
++	depends on ARCH_CHIP_STM32F446R
++	---help---
++		A configuration for a custom STM32F446RET6 board that publishes
++		MAVLink telemetry from a Here4 GNSS/compass/IMU/baro read over
++		DroneCAN.  Same pinout as the STM32F105RB variant of this design
++		(ARCH_BOARD_MAVLINK_F105): USART1 on PA9/PA10, CAN1 on PA11/PA12.
++
+ 
+ config ARCH_BOARD_STM32G071B_DISCO
+ 	bool "STM32G071 STM32G071B-DISO"
+@@ -2924,6 +2933,14 @@ config ARCH_BOARD_STM32F103_MINIMUM
  	---help---
  		A configuration for the STM32F103 Minimum board.
  
@@ -11,12 +27,21 @@ index 44e9a245bd..8ddf83eaaf 100644
 +	depends on ARCH_CHIP_STM32F105RB
 +	---help---
 +		A configuration for a custom STM32F105RBT6 board that publishes
-+		MAVLink GPS/IMU telemetry from an NMEA GPS and an MPU9250 IMU.
++		MAVLink telemetry from a Here4 GNSS/compass/IMU/baro read over
++		DroneCAN.  USART1 on PA9/PA10, CAN1 on PA11/PA12.
 +
  config ARCH_BOARD_STM32F411_MINIMUM
  	bool "STM32F411CEU6 Minimum ARM Development Board"
  	depends on ARCH_CHIP_STM32F411CE
-@@ -4014,6 +4021,7 @@ config ARCH_BOARD
+@@ -3868,6 +3885,7 @@ config ARCH_BOARD
+ 	default "stm32f401rc-rs485"            if ARCH_BOARD_STM32F401RC_RS485
+ 	default "nucleo-f429zi"                if ARCH_BOARD_NUCLEO_F429ZI
+ 	default "nucleo-f446re"                if ARCH_BOARD_NUCLEO_F446RE
++	default "mavlink-f446"                 if ARCH_BOARD_MAVLINK_F446
+ 	default "nucleo-f410rb"                if ARCH_BOARD_NUCLEO_F410RB
+ 	default "nucleo-f412zg"                if ARCH_BOARD_NUCLEO_F412ZG
+ 	default "stm32g071b-disco"             if ARCH_BOARD_STM32G071B_DISCO
+@@ -4014,6 +4032,7 @@ config ARCH_BOARD
  	default "nucleo-c071rb"                if ARCH_BOARD_NUCLEO_C071RB
  	default "nucleo-c092rc"                if ARCH_BOARD_NUCLEO_C092RC
  	default "stm32f103-minimum"            if ARCH_BOARD_STM32F103_MINIMUM
@@ -24,7 +49,17 @@ index 44e9a245bd..8ddf83eaaf 100644
  	default "stm32f411-minimum"            if ARCH_BOARD_STM32F411_MINIMUM
  	default "stm3210e-eval"                if ARCH_BOARD_STM3210E_EVAL
  	default "stm3220g-eval"                if ARCH_BOARD_STM3220G_EVAL
-@@ -4848,6 +4856,9 @@ endif
+@@ -4782,6 +4801,9 @@ endif
+ if ARCH_BOARD_NUCLEO_F446RE
+ source "boards/arm/stm32f4/nucleo-f446re/Kconfig"
+ endif
++if ARCH_BOARD_MAVLINK_F446
++source "boards/arm/stm32f4/mavlink-f446/Kconfig"
++endif
+ if ARCH_BOARD_NUCLEO_F401RE
+ source "boards/arm/stm32f4/nucleo-f401re/Kconfig"
+ endif
+@@ -4848,6 +4870,9 @@ endif
  if ARCH_BOARD_STM32F103_MINIMUM
  source "boards/arm/stm32f1/stm32f103-minimum/Kconfig"
  endif

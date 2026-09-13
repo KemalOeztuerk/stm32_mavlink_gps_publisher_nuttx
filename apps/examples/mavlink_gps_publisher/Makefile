@@ -36,6 +36,7 @@ CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/canutils/libdronecan/libcanard
 CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/canutils/libdronecan/libcanard/drivers/nuttx
 
 CSRCS  = nav_state.c imu_state.c ahrs_state.c ahrs_filter.c baro_state.c mavlink_link.c
+CSRCS += mavlink_can_forward.c
 CSRCS += dronecan_gnss.c
 CSRCS += dronecan/generated/uavcan.equipment.gnss.Fix2.c
 CSRCS += dronecan/generated/uavcan.equipment.gnss.Auxiliary.c

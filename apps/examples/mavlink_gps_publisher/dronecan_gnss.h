@@ -56,6 +56,25 @@ bool DroneCanGnss_TakeLogMessage(char *out, size_t out_len);
  * before spawning dronecan_task(). Returns 0 on success, -1 on failure. */
 int DroneCanGnss_Init(const char *devpath);
 
+/* Raw-frame bridge used by the MAVLink CAN forwarding path
+ * (mavlink_can_forward.c), which lets Mission Planner's DroneCAN page talk
+ * to the Here4 through this board. Both directions go around libcanard:
+ * Mission Planner runs its own DroneCAN stack and this board is only the
+ * wire, so nothing here has to understand the transfers being carried.
+ *
+ * The hook is called from dronecan_task() for every frame received on the
+ * bus, before libcanard narrows them down to the sensor messages this board
+ * consumes. NULL (the default) disables forwarding entirely. */
+typedef void (*dronecan_rx_hook_t)(uint32_t can_id, uint8_t len,
+                                    const uint8_t *data);
+
+void DroneCanGnss_SetRxHook(dronecan_rx_hook_t hook);
+
+/* Queues one raw frame to be written onto the bus by dronecan_task().
+ * Returns false if the queue is full. Safe to call from another thread. */
+bool DroneCanGnss_QueueTxFrame(uint32_t can_id, uint8_t len,
+                                const uint8_t *data);
+
 /* pthread entry: receives and decodes CAN frames, serves node ID
  * allocation requests, and broadcasts NodeStatus, forever. */
 void *dronecan_task(void *argument);
